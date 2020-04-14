@@ -11,7 +11,7 @@ const insightsSystemReportURL = "http://cert.cloud.redhat.com/api/insights/v1/sy
 func show(cfg *config) error {
 	var err error
 
-	client, err := newClient(cfg.CertFile, cfg.KeyFile)
+	client, err := newClient(cfg )
 	if err != nil {
 		return err
 	}

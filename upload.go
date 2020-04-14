@@ -1,12 +1,19 @@
 package main
 
 import (
+	"io"
 	"io/ioutil"
 	"net/http"
+	"log"
 	"os"
+	"mime/multipart"
+	"bytes"
+	"path/filepath"
+	"fmt"
+	"net/textproto"
 )
 
-const uploadURL = "https://cert.cloud.redhat.com/api/ingress/v1/upload"
+const uploadURL = "https://cloud.redhat.com/api/ingress/v1/upload"
 
 // upload submits archivePath to the Insights service for analysis.
 func upload(cfg *config, archivePath string) error {
@@ -16,7 +23,7 @@ func upload(cfg *config, archivePath string) error {
 		return err
 	}
 
-	client, err := newClient(cfg.CertFile, cfg.KeyFile)
+	client, err := newClient(cfg)
 	if err != nil {
 		return err
 	}
@@ -27,9 +34,38 @@ func upload(cfg *config, archivePath string) error {
 	}
 	defer f.Close()
 
-	req, err := http.NewRequest(http.MethodPost, uploadURL, f)
+	postbody := &bytes.Buffer{}
+	writer := multipart.NewWriter(postbody)
+
+	// file
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition",
+		fmt.Sprintf(`form-data; name="file"; filename="%s"`, (filepath.Base(archivePath))))
+	h.Set("Content-Type", "application/vnd.redhat.advisor.collection+tgz")
+	filePart, err := writer.CreatePart(h)
+	_, err = io.Copy(filePart, f)
+
+	// metadata
+	h = make(textproto.MIMEHeader)
+	h.Set("Content-Disposition",
+		fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
+			"metadata", "metadata"))
+	metadataPart, err := writer.CreatePart(h)
+	metadataPart.Write([]byte("{}"))
+	err = writer.Close()
+
 	if err != nil {
 		return err
+	}
+	
+	req, err := http.NewRequest(http.MethodPost, uploadURL, postbody)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	if cfg.AuthMethod == "BASIC" {
+		req.SetBasicAuth(cfg.Username, cfg.Password)
 	}
 
 	res, err := client.Do(req)
@@ -45,6 +81,9 @@ func upload(cfg *config, archivePath string) error {
 
 	switch res.StatusCode {
 	case http.StatusOK:
+		break
+	case http.StatusAccepted:
+		log.Println("Uploaded successfully.")
 		break
 	default:
 		return &unexpectedResponseErr{statusCode: res.StatusCode, body: string(data)}

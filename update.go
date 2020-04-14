@@ -23,7 +23,7 @@ func update(cfg *config) error {
 		return err
 	}
 
-	client, err := newClient(cfg.CertFile, cfg.KeyFile)
+	client, err := newClient(cfg)
 	if err != nil {
 		return err
 	}
